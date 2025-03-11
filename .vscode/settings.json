@@ -1,5 +1,7 @@
 {
     "cSpell.words": [
         "myapp"
-    ]
+    ],
+    "appService.defaultWebAppToDeploy": "undefined/subscriptions/664ac511-24c8-4c8f-bc46-800ac3995067/resourceGroups/WorkshopProcessor/providers/Microsoft.Web/sites/WorkshopProcessor",
+    "appService.deploySubpath": "."
 }

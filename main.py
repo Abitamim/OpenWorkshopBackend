@@ -12,7 +12,6 @@ from pptx.enum.text import PP_ALIGN
 from pptx.dml.line import LineFormat
 from math import ceil
 
-
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
@@ -37,32 +36,42 @@ async def search_workshops(
     start_date: str = Form(...),
     end_date: str = Form(None),
     countries: list[str] = Form(...),
-    file_types: list[str] = Form(default=['excel'])
+    file_type: str = Form(...)  # Changed from file_types to file_type
 ):
-    print("trying")
     try:
-        # Create new Excel file in memory
-        output = BytesIO()
-        template_path = "pptx_templates/template.pptx"
-        print("in between")
-        prs = Presentation(template_path)
-        print("after prs")
-        prs.slide_width = Inches(13.333)
-        prs.slide_height = Inches(7.5)
-        print('Excel file before successfully')
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            print("inside excel writer")
+        if file_type == 'excel':
+            # Create Excel file
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                for country in countries:
+                    df = pd.read_excel('workshops_data/clean_workshops.xlsx', sheet_name=country)
+                    df.to_excel(writer, sheet_name=country, index=False)
+            
+            output.seek(0)
+            filename = f"workshops_by_country.xlsx"
+            
+            return StreamingResponse(
+                output,
+                media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"',
+                    'Access-Control-Expose-Headers': 'Content-Disposition'
+                }
+            )
+            
+        elif file_type == 'pptx':
+            # Create PowerPoint file
+            template_path = "pptx_templates/template.pptx"
+            prs = Presentation(template_path)
+            prs.slide_width = Inches(13.333)
+            prs.slide_height = Inches(7.5)
+
             for country in countries:
-                print("inside for loop " + country)
                 df = pd.read_excel('workshops_data/clean_workshops.xlsx', sheet_name=country)
-                df.to_excel(writer, sheet_name=country, index=False)
-                
-                 # Calculate slides needed for this country
-                rows_per_slide = 16
+                rows_per_slide = 18
                 num_slides = ceil(len(df) / rows_per_slide)
                 
                 for slide_num in range(num_slides):
-                    # Add slide
                     slide = prs.slides.add_slide(prs.slide_layouts[6])
                     
                     # Add title
@@ -71,20 +80,17 @@ async def search_workshops(
                     title_text.text = f"Open Workshops in {country}"
                     title_text.font.size = Pt(24)
                     title_text.font.bold = True
-
-                    print("after title")
+                    
                     # Create table
                     start_idx = slide_num * rows_per_slide
                     end_idx = min((slide_num + 1) * rows_per_slide, len(df))
-                    rows = end_idx - start_idx + 1  # +1 for header row
+                    rows = end_idx - start_idx + 1
                     
                     table = slide.shapes.add_table(rows, 3, Inches(0.5), Inches(1), Inches(12), Inches(5.5)).table
-                    print("after table")
-                    # Set column widths
-                    table.columns[0].width = Inches(6)    # Workshop Title
-                    table.columns[1].width = Inches(2)    # Duration
-                    table.columns[2].width = Inches(4)    # Dates
-                    print("after column widths")
+                    table.columns[0].width = Inches(6)
+                    table.columns[1].width = Inches(2)
+                    table.columns[2].width = Inches(4)
+                    
                     # Add headers
                     headers = ["Workshop Title", "Duration (Days)", "Dates Available"]
                     for i, header in enumerate(headers):
@@ -94,7 +100,7 @@ async def search_workshops(
                         paragraph.font.bold = True
                         paragraph.font.size = Pt(12)
                         paragraph.alignment = PP_ALIGN.CENTER
-                    print("after headers")
+                    
                     # Add data rows
                     for row_idx, (_, row_data) in enumerate(df.iloc[start_idx:end_idx].iterrows(), 1):
                         for col_idx, value in enumerate(row_data):
@@ -102,41 +108,23 @@ async def search_workshops(
                             cell.text = str(value)
                             paragraph = cell.text_frame.paragraphs[0]
                             paragraph.font.size = Pt(10)
-                            if col_idx == 1:  # Duration column
+                            if col_idx == 1:
                                 paragraph.alignment = PP_ALIGN.CENTER
-                    print("after data rows")
 
-        output.seek(0)
-        print("after output")
-
-        ppt_buffer = BytesIO()
-        prs.save(ppt_buffer)
-        print("after ppt buffer")
-        ppt_buffer.seek(0)
-        
-        filename_excel = f"workshops_by_country.xlsx"
-        filename_powerpoint = f"workshops_by_country.pptx"
-
-        headers_pptx = {
-            'Content-Disposition': f'attachment; filename="{filename_powerpoint}"',
-            'Access-Control-Expose-Headers': 'Content-Disposition'
-        }
-
-        headers_excel = {
-            'Content-Disposition': f'attachment; filename="{filename_excel}"',
-            'Access-Control-Expose-Headers': 'Content-Disposition'
-        }
-        
-        return StreamingResponse(
-            ppt_buffer,
-            media_type='application/vnd.openxmlformats-officedocument.presentationml.presentation',
-            headers=headers_pptx
-        )
-        # StreamingResponse(
-        #     output,
-        #     media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        #     headers=headers_excel
-        # )
+            ppt_buffer = BytesIO()
+            prs.save(ppt_buffer)
+            ppt_buffer.seek(0)
+            
+            filename = f"workshops_by_country.pptx"
+            
+            return StreamingResponse(
+                ppt_buffer,
+                media_type='application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"',
+                    'Access-Control-Expose-Headers': 'Content-Disposition'
+                }
+            )
 
     except Exception as e:
         print(f"Error: {str(e)}")

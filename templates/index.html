@@ -62,10 +62,16 @@
             </div>
         
             <div class="download-section">
-                <button type="submit" class="btn btn-primary download-btn">
-                    <i class="bi bi-download"></i>
-                    Download Results
-                </button>
+                <div class="d-flex justify-content-center gap-3">
+                    <button type="submit" name="file_type" value="excel" class="btn btn-success download-btn">
+                        <i class="bi bi-file-earmark-excel"></i>
+                        Download Excel
+                    </button>
+                    <button type="submit" name="file_type" value="pptx" class="btn btn-danger download-btn">
+                        <i class="bi bi-file-earmark-slides"></i>
+                        Download PowerPoint
+                    </button>
+                </div>
             </div>
         </form>
         </div>
