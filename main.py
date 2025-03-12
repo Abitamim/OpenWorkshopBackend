@@ -35,16 +35,44 @@ async def search_workshops(
     request: Request,
     start_date: str = Form(...),
     end_date: str = Form(None),
-    countries: list[str] = Form(...),
+    countries: list[str] = Form(..., alias="countries[]"),
     file_type: str = Form(...)  # Changed from file_types to file_type
 ):
+    start_date_filter = pd.to_datetime(start_date)
+    end_date_filter = pd.to_datetime(end_date) if end_date else None
+
+    def filter_dates(date_str, start_date_filter, end_date_filter, duration):
+        dates = [d.strip() for d in date_str.split(',')]
+        valid_dates = []
+        for d_str in dates:
+            try:
+                d = pd.to_datetime(d_str, format='%b-%d-%Y', errors='coerce')
+                if pd.isna(d):
+                    continue
+                workshop_end = d + pd.to_timedelta(duration - 1, unit='d')
+                if d >= start_date_filter and (end_date_filter is None or workshop_end <= end_date_filter):
+                    valid_dates.append(d.strftime('%b-%d-%Y'))
+            except Exception:
+                continue
+        return ', '.join(valid_dates)
+
     try:
         if file_type == 'excel':
             # Create Excel file
             output = BytesIO()
+            print("before writer")
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                for country in countries:
+                for country in countries: 
+                    print("country " + country)
                     df = pd.read_excel('workshops_data/clean_workshops.xlsx', sheet_name=country)
+                    print("after read")
+                    df['Dates Available'] = df.apply(lambda row: filter_dates(row['Dates Available'], start_date_filter, end_date_filter, row['Duration (Days)']), axis=1)
+                    # Drop rows that end up with no valid dates.
+                    print("after filter")
+                    df = df[df['Dates Available'] != '']
+                    print("excel df after filter " + str(df))
+                    if df.empty:
+                        continue  # Skip country if no workshops pass the filter
                     df.to_excel(writer, sheet_name=country, index=False)
             
             output.seek(0)
@@ -66,32 +94,48 @@ async def search_workshops(
             prs.slide_width = Inches(13.333)
             prs.slide_height = Inches(7.5)
 
+            rows_per_slide = 17  # maximum data rows per slide
+
             for country in countries:
                 df = pd.read_excel('workshops_data/clean_workshops.xlsx', sheet_name=country)
-                rows_per_slide = 18
+                df['Dates Available'] = df.apply(lambda row: filter_dates(row['Dates Available'], start_date_filter, end_date_filter, row['Duration (Days)']), axis=1)
+                df = df[df['Dates Available'] != '']
+                if df.empty:
+                    print("skipping")
+                    continue  # Skip country if no workshops pass the filter
+                print("after continue")
                 num_slides = ceil(len(df) / rows_per_slide)
-                
+
                 for slide_num in range(num_slides):
                     slide = prs.slides.add_slide(prs.slide_layouts[6])
-                    
-                    # Add title
-                    title = slide.shapes.add_textbox(Inches(0.5), Inches(0), Inches(12), Inches(0.75))
+
+                    # Add title (placed at the top)
+                    title = slide.shapes.add_textbox(Inches(0.5), Inches(0.0), Inches(12), Inches(0.75))
                     title_text = title.text_frame.add_paragraph()
                     title_text.text = f"Open Workshops in {country}"
                     title_text.font.size = Pt(24)
                     title_text.font.bold = True
-                    
-                    # Create table
-                    start_idx = slide_num * rows_per_slide
-                    end_idx = min((slide_num + 1) * rows_per_slide, len(df))
-                    rows = end_idx - start_idx + 1
-                    
-                    table = slide.shapes.add_table(rows, 3, Inches(0.5), Inches(1), Inches(12), Inches(5.5)).table
+
+                    # Create table with fixed total_rows regardless of data count
+                    # Slice data for this slide and add it to the table starting at row index 1.
+                    slide_data = df.iloc[slide_num * rows_per_slide : (slide_num + 1) * rows_per_slide]
+                    data_rows = len(slide_data)
+                    total_rows_slide = data_rows + 1  # header row + data rows
+                    fixed_row_height = Inches(0.3)
+                    table_height = total_rows_slide * fixed_row_height
+
+                    # Create table with exactly as many rows as needed
+                    table_shape = slide.shapes.add_table(total_rows_slide, 3, Inches(0.5), Inches(1), Inches(12), table_height)
+                    table = table_shape.table
                     table.columns[0].width = Inches(6)
                     table.columns[1].width = Inches(2)
                     table.columns[2].width = Inches(4)
-                    
-                    # Add headers
+
+                    # Set each row's height
+                    for r in range(total_rows_slide):
+                        table.rows[r].height = fixed_row_height
+
+                    # Add header row
                     headers = ["Workshop Title", "Duration (Days)", "Dates Available"]
                     for i, header in enumerate(headers):
                         cell = table.cell(0, i)
@@ -100,15 +144,15 @@ async def search_workshops(
                         paragraph.font.bold = True
                         paragraph.font.size = Pt(12)
                         paragraph.alignment = PP_ALIGN.CENTER
-                    
-                    # Add data rows
-                    for row_idx, (_, row_data) in enumerate(df.iloc[start_idx:end_idx].iterrows(), 1):
+
+                    # Fill table with data rows
+                    for idx, (_, row_data) in enumerate(slide_data.iterrows(), start=1):
                         for col_idx, value in enumerate(row_data):
-                            cell = table.cell(row_idx, col_idx)
+                            cell = table.cell(idx, col_idx)
                             cell.text = str(value)
                             paragraph = cell.text_frame.paragraphs[0]
                             paragraph.font.size = Pt(10)
-                            if col_idx == 1:
+                            if col_idx == 1:  # center-align Duration column
                                 paragraph.alignment = PP_ALIGN.CENTER
 
             ppt_buffer = BytesIO()
@@ -116,15 +160,15 @@ async def search_workshops(
             ppt_buffer.seek(0)
             
             filename = f"workshops_by_country.pptx"
-            
+                    
             return StreamingResponse(
-                ppt_buffer,
-                media_type='application/vnd.openxmlformats-officedocument.presentationml.presentation',
-                headers={
-                    'Content-Disposition': f'attachment; filename="{filename}"',
-                    'Access-Control-Expose-Headers': 'Content-Disposition'
-                }
-            )
+                        ppt_buffer,
+                        media_type='application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                        headers={
+                            'Content-Disposition': f'attachment; filename="{filename}"',
+                            'Access-Control-Expose-Headers': 'Content-Disposition'
+                        }
+                    )
 
     except Exception as e:
         print(f"Error: {str(e)}")
