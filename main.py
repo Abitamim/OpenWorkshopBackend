@@ -16,6 +16,50 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
+def filter_dates(date_str, start_date_filter, end_date_filter, duration):
+    dates = [d.strip() for d in date_str.split(',')]
+    valid_dates = []
+    for d_str in dates:
+        try:
+            d = pd.to_datetime(d_str, format='%b-%d-%Y', errors='coerce')
+            if pd.isna(d):
+                continue
+            workshop_end = d + pd.to_timedelta(duration - 1, unit='d')
+            if d >= start_date_filter and (end_date_filter is None or workshop_end <= end_date_filter):
+                valid_dates.append(d.strftime('%b-%d-%Y'))
+        except Exception:
+            continue
+    return ', '.join(valid_dates)
+
+@app.post("/preview")
+async def preview_workshops(
+    request: Request,
+    start_date: str = Form(...),
+    end_date: str = Form(None),
+    countries: list[str] = Form(..., alias="countries[]")
+):
+    start_date_filter = pd.to_datetime(start_date)
+    end_date_filter = pd.to_datetime(end_date) if end_date else None
+
+    preview_data = {}
+    try:
+        for country in countries:
+            df = pd.read_excel('workshops_data/clean_workshops.xlsx', sheet_name=country)
+            df['Dates Available'] = df.apply(
+                lambda row: filter_dates(row['Dates Available'], 
+                start_date_filter, 
+                end_date_filter, 
+                row['Duration (Days)']), 
+                axis=1
+            )
+            df = df[df['Dates Available'] != '']
+            if not df.empty:
+                preview_data[country] = df.to_dict('records')
+
+        return {"success": True, "data": preview_data}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     print('Request for index page received')
@@ -40,21 +84,6 @@ async def search_workshops(
 ):
     start_date_filter = pd.to_datetime(start_date)
     end_date_filter = pd.to_datetime(end_date) if end_date else None
-
-    def filter_dates(date_str, start_date_filter, end_date_filter, duration):
-        dates = [d.strip() for d in date_str.split(',')]
-        valid_dates = []
-        for d_str in dates:
-            try:
-                d = pd.to_datetime(d_str, format='%b-%d-%Y', errors='coerce')
-                if pd.isna(d):
-                    continue
-                workshop_end = d + pd.to_timedelta(duration - 1, unit='d')
-                if d >= start_date_filter and (end_date_filter is None or workshop_end <= end_date_filter):
-                    valid_dates.append(d.strftime('%b-%d-%Y'))
-            except Exception:
-                continue
-        return ', '.join(valid_dates)
 
     try:
         if file_type == 'excel':

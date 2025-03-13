@@ -63,9 +63,114 @@
     #downloadPptx {
       background-color: #dc3545;
     }
+    #previewSection {
+        margin-top: 20px;
+        display: none;
+    }
+
+    .preview-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+    }
+
+    .preview-table th, .preview-table td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: left;
+    }
+
+    .preview-table th {
+        background-color: #f4f4f4;
+    }
+
+    .country-header {
+        margin-top: 20px;
+        color: #2c3e50;
+        font-size: 1.2rem;
+    }
+
+    #previewButton {
+        background-color: #007bff;
+    }
+
+    .container {
+        display: flex;
+        max-width: 1200px;
+        margin: 2rem auto;
+        gap: 2rem;
+        padding: 0 20px;
+    }
+
+    main {
+        flex: 1;
+        max-width: none;
+        margin: 0;
+    }
+
+    .explanation-panel {
+        width: 300px;
+        background: #fff;
+        border-radius: 8px;
+        box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        padding: 20px;
+        height: fit-content;
+    }
+
+    .explanation-panel h2 {
+        color: #2c3e50;
+        font-size: 1.4rem;
+        margin-bottom: 1rem;
+    }
+
+    .explanation-panel ol {
+        padding-left: 20px;
+        margin: 0;
+    }
+
+    .explanation-panel li {
+        margin-bottom: 1rem;
+        line-height: 1.4;
+    }
+
+    .explanation-panel .tip {
+        margin-top: 1rem;
+        padding: 10px;
+        background: #f8f9fa;
+        border-left: 4px solid #007bff;
+        font-size: 0.9rem;
+    }
+
+    @media (max-width: 900px) {
+        .container {
+            flex-direction: column;
+        }
+        
+        .explanation-panel {
+            width: auto;
+        }
+    }
+
+    .contact-info {
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 1px solid #eee;
+    line-height: 1.4;
+}
+
+.contact-info a {
+    color: #007bff;
+    text-decoration: none;
+}
+
+.contact-info a:hover {
+    text-decoration: underline;
+}
   </style>
 </head>
+
 <body>
+    <div class="container">
   <main>
     <h1>Open Workshops</h1>
     <form id="workshopForm" method="post" action="/" target="hidden_iframe">
@@ -86,6 +191,9 @@
         </select>
       </div>
       <div class="button-container">
+        <button type="button" id="previewButton" onclick="previewData()">
+            Preview Data
+        </button>
         <button type="submit" name="file_type" value="excel" id="downloadExcel">
           Download Excel
         </button>
@@ -94,8 +202,34 @@
         </button>
       </div>
     </form>
+    <div id="previewSection">
+        <h2>Preview</h2>
+        <div id="previewContent"></div>
+    </div>
     <iframe name="hidden_iframe" id="hidden_iframe" style="display:none;"></iframe>
   </main>
+  <aside class="explanation-panel">
+    <h2>How to Use</h2>
+    <ol>
+      <li>Select a <strong>Start Date</strong> for your workshop search. This filters out workshops that begin before this date.</li>
+      <li>Optionally, set an <strong>End Date</strong> to limit your search to workshops that complete before this date.</li>
+      <li>Choose one or more <strong>Countries</strong> from the dropdown list to filter workshops by location.</li>
+      <li>Click <strong>Preview Data</strong> to see the available workshops matching your criteria.</li>
+      <li>Download your results in either:
+        <ul style="margin: 0.5rem 0;">
+          <li style="margin-bottom: 0.5rem;">Excel format for detailed analysis</li>
+          <li>PowerPoint format for presentations</li>
+        </ul>
+      </li>
+    </ol>
+    <div class="tip">
+      <strong>Tip:</strong> Use the preview function to verify your search criteria before downloading the full report.
+    </div>
+    <div class="contact-info">
+      For any feedback or suggestions, please contact Abitamim Bharmal (<a href="https://teams.microsoft.com/l/chat/0/0?users=abharmal@microsoft.com">abharmal</a>) on Teams or via <a href="mailto:abharmal@microsoft.com">email</a>.
+    </div>
+  </aside>
+</div>
   <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
   <script>
     document.addEventListener("DOMContentLoaded", function() {
@@ -113,6 +247,68 @@
         endDateEl.min = this.value;
       });
     });
+
+    async function previewData() {
+        const form = document.getElementById('workshopForm');
+        const formData = new FormData(form);
+        
+        try {
+            const response = await fetch('/preview', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+                const previewSection = document.getElementById('previewSection');
+                const previewContent = document.getElementById('previewContent');
+                previewContent.innerHTML = '';
+                
+                for (const [country, workshops] of Object.entries(result.data)) {
+                    const countryHeader = document.createElement('h3');
+                    countryHeader.className = 'country-header';
+                    countryHeader.textContent = country;
+                    previewContent.appendChild(countryHeader);
+                    
+                    const table = document.createElement('table');
+                    table.className = 'preview-table';
+                    
+                    // Add header
+                    const thead = document.createElement('thead');
+                    thead.innerHTML = `
+                        <tr>
+                            <th>Workshop Title</th>
+                            <th>Duration (Days)</th>
+                            <th>Dates Available</th>
+                        </tr>
+                    `;
+                    table.appendChild(thead);
+                    
+                    // Add data rows
+                    const tbody = document.createElement('tbody');
+                    workshops.forEach(workshop => {
+                        tbody.innerHTML += `
+                            <tr>
+                                <td>${workshop['Workshop Title']}</td>
+                                <td>${workshop['Duration (Days)']}</td>
+                                <td>${workshop['Dates Available']}</td>
+                            </tr>
+                        `;
+                    });
+                    table.appendChild(tbody);
+                    
+                    previewContent.appendChild(table);
+                }
+                
+                previewSection.style.display = 'block';
+            } else {
+                alert('Error loading preview: ' + result.error);
+            }
+        } catch (error) {
+            alert('Error loading preview: ' + error);
+        }
+    }
   </script>
 </body>
 </html>
